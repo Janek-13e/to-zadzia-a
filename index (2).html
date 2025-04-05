@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sklepik szkolny</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #f2f2f2;
+    }
+    .hidden { display: none; }
+    .login-container, .admin-panel, .worker-panel {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    h1, h2 { text-align: center; }
+    input, select, button {
+      display: block;
+      width: 100%;
+      padding: 10px;
+      margin: 10px 0;
+    }
+    ul { list-style: none; padding: 0; }
+    li { margin: 5px 0; }
+    .produkt-row { display: flex; justify-content: space-between; align-items: center; margin: 5px 0; }
+    .produkt-row input { width: 60px; }
+    canvas { margin-top: 20px; }
+  </style>
+</head>
+<body>
+
+<div class="login-container" id="loginContainer">
+  <h1>Logowanie</h1>
+  <input type="text" id="login" placeholder="Login">
+  <input type="password" id="password" placeholder="Hasło">
+  <button onclick="zaloguj()">Zaloguj</button>
+  <p id="loginError" style="color:red;"></p>
+</div>
+
+<div class="admin-panel hidden" id="adminPanel">
+  <h1>Panel administratora</h1>
+  <h2>Dodaj produkt</h2>
+  <input type="text" id="nazwaProduktu" placeholder="Nazwa produktu">
+  <input type="number" id="cenaProduktu" placeholder="Cena">
+  <input type="number" id="iloscProduktu" placeholder="Ilość">
+  <button onclick="dodajProdukt()">Dodaj</button>
+  <h2>Lista produktów</h2>
+  <ul id="listaProduktow"></ul>
+  <h2>Podsumowanie sprzedaży</h2>
+  <p><strong>Łączny przychód: <span id="adminLacznaKwota">0.00</span> zł</strong></p>
+  <canvas id="wykresSprzedazy" width="400" height="200"></canvas>
+  <button style="background-color: red; color: white;" onclick="resetujDane()">🗑️ Resetuj wszystkie dane</button>
+</div>
+
+<div class="worker-panel hidden" id="workerPanel">
+  <h1>Panel pracownika</h1>
+  <h2>Sprzedaż</h2>
+  <label for="dataSprzedazy">Data sprzedaży:</label>
+  <input type="datetime-local" id="dataSprzedazy">
+  <div id="produktyForm"></div>
+  <p><strong>Suma: <span id="sumaZakupu">0.00</span> zł</strong></p>
+  <button onclick="zapiszSprzedaz()">Zapisz sprzedaż</button>
+  <h3>Filtruj sprzedaż po dacie</h3>
+  <input type="date" id="filtrData" onchange="pokazSprzedaz()">
+  <h3>Podsumowanie sprzedaży</h3>
+  <ul id="listaSprzedazy"></ul>
+  <p><strong>Łączna kwota: <span id="lacznaKwota">0.00</span> zł</strong></p>
+</div>
+
+<script>
+  const produktyKey = 'produkty';
+  const sprzedazKey = 'sprzedaz';
+
+  function zaloguj() {
+    const login = document.getElementById('login').value;
+    const password = document.getElementById('password').value;
+    const loginError = document.getElementById('loginError');
+    if (login === 'admin' && password === 'admin123') {
+      document.getElementById('loginContainer').classList.add('hidden');
+      document.getElementById('adminPanel').classList.remove('hidden');
+      pokazListeProduktow();
+      pokazWykresSprzedazy();
+    } else if (login === 'pracownik' && password === 'pracownik123') {
+      document.getElementById('loginContainer').classList.add('hidden');
+      document.getElementById('workerPanel').classList.remove('hidden');
+      ustawDateIGodzine();
+      pokazFormularzProduktow();
+      pokazSprzedaz();
+    } else {
+      loginError.textContent = 'Nieprawidłowy login lub hasło';
+    }
+  }
+
+  function dodajProdukt() {
+    const nazwa = document.getElementById('nazwaProduktu').value;
+    const cena = parseFloat(document.getElementById('cenaProduktu').value);
+    const ilosc = parseInt(document.getElementById('iloscProduktu').value);
+    if (!nazwa || isNaN(cena) || isNaN(ilosc)) {
+      alert('Wpisz poprawną nazwę, cenę i ilość!');
+      return;
+    }
+    const produkty = JSON.parse(localStorage.getItem(produktyKey)) || [];
+    produkty.push({ nazwa, cena, ilosc });
+    localStorage.setItem(produktyKey, JSON.stringify(produkty));
+    document.getElementById('nazwaProduktu').value = '';
+    document.getElementById('cenaProduktu').value = '';
+    document.getElementById('iloscProduktu').value = '';
+    pokazListeProduktow();
+    pokazFormularzProduktow();
+  }
+
+  function pokazListeProduktow() {
+    const lista = document.getElementById('listaProduktow');
+    const produkty = JSON.parse(localStorage.getItem(produktyKey)) || [];
+    lista.innerHTML = '';
+    produkty.forEach((p, index) => {
+      const li = document.createElement('li');
+      li.innerHTML = `
+        ${p.nazwa} - ${p.cena.toFixed(2)}zł - ${p.ilosc} szt.
+        <br>
+        <input type="number" placeholder="Nowa cena" onchange="edytujCene(${index}, this.value)">
+        <input type="number" placeholder="+/- ilość" onchange="zmienIlosc(${index}, this.value)">
+        <button onclick="usunProdukt(${index})" style="color:red;">Usuń</button>
+      `;
+      lista.appendChild(li);
+    });
+  }
+
+  function edytujCene(index, nowaCena) {
+    const produkty = JSON.parse(localStorage.getItem(produktyKey)) || [];
+    produkty[index].cena = parseFloat(nowaCena);
+    localStorage.setItem(produktyKey, JSON.stringify(produkty));
+    pokazListeProduktow();
+    pokazFormularzProduktow();
+  }
+
+  function zmienIlosc(index, zmiana) {
+    const produkty = JSON.parse(localStorage.getItem(produktyKey)) || [];
+    produkty[index].ilosc += parseInt(zmiana);
+    if (produkty[index].ilosc < 0) produkty[index].ilosc = 0;
+    localStorage.setItem(produktyKey, JSON.stringify(produkty));
+    pokazListeProduktow();
+    pokazFormularzProduktow();
+  }
+
+  function usunProdukt(index) {
+    if (!confirm("Na pewno usunąć ten produkt?")) return;
+    const produkty = JSON.parse(localStorage.getItem(produktyKey)) || [];
+    produkty.splice(index, 1);
+    localStorage.setItem(produktyKey, JSON.stringify(produkty));
+    pokazListeProduktow();
+    pokazFormularzProduktow();
+  }
+
+  function pokazFormularzProduktow() {
+    const produkty = JSON.parse(localStorage.getItem(produktyKey)) || [];
+    const container = document.getElementById('produktyForm');
+    container.innerHTML = '';
+    produkty.forEach((p, index) => {
+      const div = document.createElement('div');
+      div.className = 'produkt-row';
+      div.innerHTML = `
+        <label>${p.nazwa} - ${p.cena.toFixed(2)}zł (${p.ilosc} szt.)</label>
+        <input type="number" min="0" value="0" max="${p.ilosc}" data-index="${index}" onchange="obliczSume()">
+      `;
+      container.appendChild(div);
+    });
+  }
+
+  function obliczSume() {
+    const produkty = JSON.parse(localStorage.getItem(produktyKey)) || [];
+    const inputs = document.querySelectorAll('#produktyForm input');
+    let suma = 0;
+    inputs.forEach(input => {
+      const index = parseInt(input.dataset.index);
+      const ilosc = parseInt(input.value);
+      if (ilosc > produkty[index].ilosc) {
+        alert(`Brak wystarczającej ilości: ${produkty[index].nazwa}`);
+        input.value = 0;
+        return;
+      }
+      if (ilosc > 0) suma += ilosc * produkty[index].cena;
+    });
+    document.getElementById('sumaZakupu').textContent = suma.toFixed(2);
+  }
+
+  function zapiszSprzedaz() {
+    const data = document.getElementById('dataSprzedazy').value;
+    if (!data) return alert('Wybierz datę!');
+    const produkty = JSON.parse(localStorage.getItem(produktyKey)) || [];
+    const inputs = document.querySelectorAll('#produktyForm input');
+    const sprzedaz = JSON.parse(localStorage.getItem(sprzedazKey)) || [];
+
+    let suma = 0;
+    const produktySprzedane = [];
+    inputs.forEach(input => {
+      const index = parseInt(input.dataset.index);
+      const ilosc = parseInt(input.value);
+      if (ilosc > 0) {
+        if (ilosc > produkty[index].ilosc) {
+          alert(`Brak wystarczającej ilości: ${produkty[index].nazwa}`);
+          return;
+        }
+        produktySprzedane.push({ ...produkty[index], ilosc });
+        suma += ilosc * produkty[index].cena;
+        produkty[index].ilosc -= ilosc;
+      }
+    });
+
+    if (produktySprzedane.length === 0) return alert('Wybierz produkty!');
+    sprzedaz.push({ data, produkty: produktySprzedane, suma });
+    localStorage.setItem(sprzedazKey, JSON.stringify(sprzedaz));
+    localStorage.setItem(produktyKey, JSON.stringify(produkty));
+    pokazSprzedaz();
+    pokazFormularzProduktow();
+    pokazWykresSprzedazy();
+  }
+
+  function pokazSprzedaz() {
+    const dataFiltru = document.getElementById('filtrData')?.value || null;
+    const lista = document.getElementById('listaSprzedazy');
+    const sprzedaz = JSON.parse(localStorage.getItem(sprzedazKey)) || [];
+    lista.innerHTML = '';
+    let laczna = 0;
+    sprzedaz.forEach(s => {
+      if (dataFiltru && !s.data.startsWith(dataFiltru)) return;
+      const produktyText = s.produkty.map(p => `${p.nazwa} x${p.ilosc} (${p.cena.toFixed(2)}zł)`).join(', ');
+      const li = document.createElement('li');
+      li.textContent = `${s.data}: ${produktyText} = ${s.suma.toFixed(2)}zł`;
+      lista.appendChild(li);
+      laczna += s.suma;
+    });
+    document.getElementById('lacznaKwota').textContent = laczna.toFixed(2);
+    document.getElementById('adminLacznaKwota').textContent = laczna.toFixed(2);
+  }
+
+  function pokazWykresSprzedazy() {
+    const sprzedaz = JSON.parse(localStorage.getItem(sprzedazKey)) || [];
+    const dziennyZysk = {};
+    sprzedaz.forEach(s => {
+      const dzien = s.data.slice(0, 10);
+      dziennyZysk[dzien] = (dziennyZysk[dzien] || 0) + s.suma;
+    });
+    const labels = Object.keys(dziennyZysk);
+    const dane = Object.values(dziennyZysk);
+
+    const ctx = document.getElementById('wykresSprzedazy').getContext('2d');
+    if (window.chart) window.chart.destroy();
+    window.chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Zysk dzienny (zł)',
+          data: dane,
+          backgroundColor: 'rgba(75, 192, 192, 0.5)',
+          borderColor: 'rgba(75, 192, 192, 1)',
+          borderWidth: 1
+        }]
+      },
+      options: {
+        scales: {
+          y: { beginAtZero: true }
+        }
+      }
+    });
+  }
+
+  function ustawDateIGodzine() {
+    const teraz = new Date();
+    const offset = teraz.getTimezoneOffset();
+    const lokalnaData = new Date(teraz.getTime() - offset * 60000);
+    document.getElementById("dataSprzedazy").value = lokalnaData.toISOString().slice(0,16);
+  }
+
+  function resetujDane() {
+    if (confirm("Czy na pewno chcesz usunąć wszystkie dane?")) {
+      localStorage.removeItem(produktyKey);
+      localStorage.removeItem(sprzedazKey);
+      alert("Dane zostały usunięte.");
+      location.reload();
+    }
+  }
+</script>
+</body>
+</html>
